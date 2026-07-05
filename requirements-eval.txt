@@ -1,0 +1,27 @@
+pyyaml
+numpy
+pandas
+tqdm
+soundfile
+librosa
+onnxruntime-gpu # 这个如果是DCU 上需要安装指定包
+requests
+openai-whisper
+torch
+torchaudio
+transformers
+huggingface_hub
+git+https://github.com/AndreevP/wvmos
+nisqa
+s3prl
+git+https://github.com/wenet-e2e/wespeaker.git
+resemblyzer
+opencc-python-reimplemented
+pysptk
+nltk
+Levenshtein
+jellyfish
+git+https://github.com/Takaaki-Saeki/DiscreteSpeechMetrics.git
+# export CFLAGS="-fcommon"
+# export CXXFLAGS="-fcommon"
+# pip install pypesq --no-build-isolation

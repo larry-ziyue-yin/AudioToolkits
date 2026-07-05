@@ -1,0 +1,45 @@
+# Python cache/build outputs
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# Runtime/cache outputs
+cache/
+model_cache/
+eval_models/
+pretrained_models/
+metrics_result/
+results/
+outputs/
+*.sqlite
+*.sqlite3
+*.db
+*.log
+core.*
+
+# Model and dataset artifacts. This GitHub mirror intentionally avoids LFS.
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+*.tar
+*.tar.*
+*.tgz
+*.gz
+*.zip
+*.7z
+*.rar
+*.h5
+*.safetensors
+
+# Local environment files
+.env
+.venv/
+venv/

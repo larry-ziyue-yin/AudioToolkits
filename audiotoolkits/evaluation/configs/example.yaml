@@ -1,0 +1,67 @@
+data:
+  recursive: true
+  audio_extensions: [".wav", ".flac"]
+  gen_suffix: "_gen"
+  gt_suffix: "_gt"
+  src_suffix: "_whisper"
+  eval_src: false
+  manifest: null
+  missing_policy: "skip"
+  scan_progress: true
+
+asr:
+  enabled: true
+  backend: "whisper"
+  model_name: "turbo"
+  language: "zh"
+  convert_to_simplified: true
+  beam_size: 5
+  task: "transcribe"
+  fp16: true
+  force_script_defaults: true
+  write_flush_every: 50
+  output_path: null
+  output_path_src: null
+  device: "auto"
+
+output:
+  output_dir: null
+  save_intermediate: true
+  overwrite: true
+  max_error_logs: 3
+  max_skip_samples: 3
+
+parallel:
+  enabled: true
+  devices: "auto"   # "auto" | "cuda" | "cpu" | ["cuda:0", "cuda:1"]
+  workers_per_device: 1
+  chunk_size: 4
+  precompute_asr: true
+
+metrics:
+  - name: dnsmos
+    personalized: false
+    include_raw: false
+    infer_batch: true
+    cache_scores: true
+    ort_intra_threads: 0
+    ort_inter_threads: 0
+  - name: utmos
+    ckpt_path: null
+  - name: wvmos
+    model_path: null
+  - name: nisqa
+    model_path: null
+  - name: speechbertscore
+    model_path: null
+    ref_type: "text"
+  - name: wavlm_sim
+    model_name_or_path: "microsoft/wavlm-base-plus-sv"
+  - name: wespeaker_sim
+    model_path: /path/to/wespeaker/model
+    pair_with: "gt"   # "gt" | "src" | "ref"; "src" 可用于 gen vs src
+    ref_token: "_ref_"  # pair_with=ref 时生效，文件名格式: <utt_id>_ref_<ref_id>.wav
+  - name: secs
+  - name: wer
+  - name: cer
+    cluster: "Mandarin"
