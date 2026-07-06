@@ -16,6 +16,46 @@ class WVMOSMetric(MetricBase):
         self.device = None
         self.cache_dir = None
 
+    def _install_hf_local_patch(self, wvmos, context):
+        hf_model_dir = self.cfg.get("hf_model_dir") or self.cfg.get("hf_model_name_or_path")
+        if not hf_model_dir:
+            return lambda: None
+        hf_model_dir = Path(hf_model_dir).expanduser()
+        if not hf_model_dir.is_absolute():
+            hf_model_dir = (Path.cwd() / hf_model_dir).resolve()
+        required = ("config.json", "preprocessor_config.json", "pytorch_model.bin")
+        missing = [name for name in required if not (hf_model_dir / name).exists()]
+        if missing:
+            raise RuntimeError(f"WVMOS hf_model_dir is missing files {missing}: {hf_model_dir}")
+
+        restore_items = []
+
+        def patch_from_pretrained(cls_name):
+            cls = getattr(wvmos, cls_name, None)
+            if cls is None or not hasattr(cls, "from_pretrained"):
+                return
+            original = cls.from_pretrained
+            restore_items.append((cls, original))
+
+            def _from_pretrained(inner_cls, name_or_path, *args, **kwargs):
+                if str(name_or_path) == "facebook/wav2vec2-base":
+                    name_or_path = str(hf_model_dir)
+                    kwargs.setdefault("local_files_only", True)
+                return original(name_or_path, *args, **kwargs)
+
+            cls.from_pretrained = classmethod(_from_pretrained)
+
+        patch_from_pretrained("Wav2Vec2Model")
+        patch_from_pretrained("Wav2Vec2Processor")
+        if context and context.logger:
+            context.logger.info("WVMOS HF base model local dir: %s", hf_model_dir)
+
+        def _restore():
+            for cls, original in restore_items:
+                cls.from_pretrained = original
+
+        return _restore
+
     def prepare(self, context):
         torch = optional_import("torch")
         spec = importlib.util.find_spec("wvmos")
@@ -62,7 +102,11 @@ class WVMOSMetric(MetricBase):
                 ckpt_path = cache_dir / "wv_mos.ckpt"
                 if not ckpt_path.exists():
                     _download_ckpt(ckpt_path)
-            self.model = model_cls(path=str(ckpt_path), cuda=use_cuda)
+            restore_hf = self._install_hf_local_patch(wvmos, context)
+            try:
+                self.model = model_cls(path=str(ckpt_path), cuda=use_cuda)
+            finally:
+                restore_hf()
         except RuntimeError as exc:
             msg = str(exc)
             if ckpt_path and any(token in msg for token in ["unexpected EOF", "file might be corrupted", "PytorchStreamReader"]):

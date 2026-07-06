@@ -53,6 +53,56 @@ class SpeechBERTScoreMetric(MetricBase):
         elif self.ref_type == "audio":
             self.requires_gt_audio = True
 
+    def _install_dsm_local_patch(self, module, model_type, context):
+        model_local_dir = self.cfg.get("model_local_dir") or self.cfg.get("hf_model_dir")
+        if not model_local_dir:
+            return lambda: None
+        model_local_dir = Path(model_local_dir).expanduser()
+        if not model_local_dir.is_absolute():
+            model_local_dir = (Path.cwd() / model_local_dir).resolve()
+        required = ("config.json", "preprocessor_config.json", "pytorch_model.bin")
+        missing = [name for name in required if not (model_local_dir / name).exists()]
+        if missing:
+            raise RuntimeError(f"SpeechBERTScore model_local_dir is missing files {missing}: {model_local_dir}")
+
+        model_ids = {
+            "hubert-base": ("HubertModel", "facebook/hubert-base-ls960"),
+            "hubert-large": ("HubertModel", "facebook/hubert-large-ll60k"),
+            "wav2vec2-base": ("Wav2Vec2Model", "facebook/wav2vec2-base"),
+            "wav2vec2-large": ("Wav2Vec2Model", "facebook/wav2vec2-large"),
+            "wavlm-base": ("WavLMModel", "microsoft/wavlm-base"),
+            "wavlm-base-plus": ("WavLMModel", "microsoft/wavlm-base-plus"),
+            "wavlm-large": ("WavLMModel", "microsoft/wavlm-large"),
+        }
+        cls_name, source_model_id = model_ids.get(str(model_type), (None, None))
+        backend_module = getattr(module, "speechbertscore", None)
+        if cls_name is None or backend_module is None:
+            return lambda: None
+        cls = getattr(backend_module, cls_name, None)
+        if cls is None or not hasattr(cls, "from_pretrained"):
+            return lambda: None
+
+        original = cls.from_pretrained
+
+        def _from_pretrained(inner_cls, name_or_path, *args, **kwargs):
+            if str(name_or_path) == source_model_id:
+                name_or_path = str(model_local_dir)
+                kwargs.setdefault("local_files_only", True)
+            return original(name_or_path, *args, **kwargs)
+
+        cls.from_pretrained = classmethod(_from_pretrained)
+        if context and context.logger:
+            context.logger.info(
+                "SpeechBERTScore %s local dir: %s",
+                source_model_id,
+                model_local_dir,
+            )
+
+        def _restore():
+            cls.from_pretrained = original
+
+        return _restore
+
     def prepare(self, context):
         torch = optional_import("torch")
         backend, module = _import_speechbertscore_backend()
@@ -102,10 +152,18 @@ class SpeechBERTScoreMetric(MetricBase):
             except (TypeError, ValueError) as exc:
                 raise MetricSkip(f"Invalid layer for SpeechBERTScore: {layer}") from exc
         try:
-            self.model = module.SpeechBERTScore(**kwargs)
+            restore_model_loader = self._install_dsm_local_patch(module, model_type, context)
+            try:
+                self.model = module.SpeechBERTScore(**kwargs)
+            finally:
+                restore_model_loader()
         except TypeError:
             try:
-                self.model = module.SpeechBERTScore(sr=sr, model_type=model_type)
+                restore_model_loader = self._install_dsm_local_patch(module, model_type, context)
+                try:
+                    self.model = module.SpeechBERTScore(sr=sr, model_type=model_type)
+                finally:
+                    restore_model_loader()
             except TypeError:
                 self.model = module.SpeechBERTScore(sr=sr)
 

@@ -21,9 +21,18 @@ class WhisperASR:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
         model_name = cfg.get("model_name", "turbo")
+        model_path = cfg.get("model_path")
+        load_name = model_name
+        if model_path:
+            model_path = Path(model_path).expanduser()
+            if not model_path.is_absolute():
+                model_path = (Path.cwd() / model_path).resolve()
+            if not model_path.exists():
+                raise RuntimeError(f"Whisper model_path not found: {model_path}")
+            load_name = str(model_path)
         if self.logger:
-            self.logger.info("加载 Whisper 模型: name=%s, device=%s", model_name, device)
-        self.model = whisper.load_model(model_name, device=device)
+            self.logger.info("加载 Whisper 模型: name=%s, load=%s, device=%s", model_name, load_name, device)
+        self.model = whisper.load_model(load_name, device=device)
         if self.logger:
             self.logger.info("Whisper 模型就绪: name=%s", model_name)
         self.transcribe_kwargs = self._build_transcribe_kwargs()

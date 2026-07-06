@@ -1,0 +1,86 @@
+data:
+  recursive: true
+  audio_extensions: [".wav", ".flac"]
+  gen_suffix: "_gen"
+  gt_suffix: "_gt"
+  src_suffix: "_whisper"
+  eval_src: false
+  manifest: null
+  missing_policy: "skip"
+  scan_progress: true
+  gt_text_path: /home/yinzy/AudioToolkits/aishell6_gt_text_simple.txt
+
+asr:
+  enabled: true
+  backend: "whisper"
+  # Same as the original Whisper alias:
+  # turbo -> large-v3-turbo.pt
+  model_name: "turbo"
+  model_path: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models/whisper/large-v3-turbo.pt
+  language: "zh"
+  convert_to_simplified: true
+  beam_size: 5
+  task: "transcribe"
+  fp16: true
+  force_script_defaults: true
+  write_flush_every: 50
+  output_path: null
+  output_path_src: null
+  device: "auto"
+
+output:
+  output_dir: null
+  save_intermediate: true
+  overwrite: false
+  cache_dir: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models
+
+parallel:
+  enabled: true
+  devices: "auto"   # "auto" | "cuda" | "cpu" | ["cuda:0", "cuda:1"]
+  workers_per_device: 1
+  chunk_size: 8
+  precompute_asr: true
+
+metrics:
+  - name: dnsmos
+    personalized: false
+    include_raw: false
+    cache_scores: true
+  - name: secs
+    pair_with: gt
+    # pair_with: ref
+    # ref_token: "_ref_"
+  - name: cer
+    cluster: Mandarin
+  - name: wer
+  - name: utmos
+  - name: wvmos
+    # Same as the original online WVMOS source:
+    # https://zenodo.org/record/6201162/files/wav2vec2.ckpt?download=1
+    model_path: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models/model_cache/wvmos/wv_mos.ckpt
+    # Same HF base model hard-coded by the wvmos package:
+    # facebook/wav2vec2-base
+    hf_model_dir: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models/model_cache/wvmos/facebook-wav2vec2-base
+  - name: wespeaker_sim
+    # Same as the original online source:
+    # gaunernst/wespeaker-voxblink2-samresnet34-ft
+    model_path: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models/wespeaker/voxblink2_samresnet34_ft
+  - name: wavlm_sim
+    # Same as the original model_name_or_path:
+    # microsoft/wavlm-base-plus-sv
+    model_name_or_path: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models/model_cache/wavlm
+    local_files_only: true
+  - name: nisqa
+    model_path: null
+  - name: speechbertscore
+    ref_type: audio
+    # Same as the original model_type:
+    # microsoft/wavlm-large
+    model_type: wavlm-large
+    model_local_dir: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models/model_cache/speechbertscore/wavlm-large
+    layer: 14
+    sr: 16000
+    use_gpu: true
+    score_type: precision
+
+
