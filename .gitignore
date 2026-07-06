@@ -43,3 +43,7 @@ core.*
 .env
 .venv/
 venv/
+
+# Local evaluation text files
+aishell6_gt_text*.txt
+*_gt_text*.txt
