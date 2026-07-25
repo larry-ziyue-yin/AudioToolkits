@@ -90,7 +90,12 @@ def normalize(tokens, ignore_words, case_sensitive):
 
 
 def default_cluster(word):
-    unicode_names = [unicodedata.name(char) for char in word]
+    unicode_names = []
+    for char in word:
+        try:
+            unicode_names.append(unicodedata.name(char))
+        except ValueError:
+            return "Other"
     for i in reversed(range(len(unicode_names))):
         name = unicode_names[i]
         if name.startswith("DIGIT"):

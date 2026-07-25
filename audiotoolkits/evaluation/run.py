@@ -57,6 +57,22 @@ def _ensure_output_path(path, overwrite, logger):
     return path
 
 
+def _is_cuda_oom(exc):
+    text = f"{exc.__class__.__name__}: {exc}".lower()
+    return "cuda out of memory" in text or "outofmemoryerror" in text
+
+
+def _clear_cuda_cache_for_exception(exc):
+    if not _is_cuda_oom(exc):
+        return
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
 def _skip_reasons(metric, item, role, eval_src):
     reasons = []
     if role == "src" and not eval_src:
@@ -329,6 +345,25 @@ def _chunk_list(values, chunk_size):
         yield values[start:start + chunk_size]
 
 
+def _build_fixed_device_jobs(chunks, active_devices):
+    devices = list(active_devices) or ["cpu"]
+    jobs = [{"device": device, "chunks": []} for device in devices]
+    for chunk_idx, chunk in enumerate(chunks):
+        jobs[chunk_idx % len(jobs)]["chunks"].append(chunk)
+    return [job for job in jobs if job["chunks"]]
+
+
+def _flatten_chunks(chunks):
+    merged = []
+    for chunk in chunks:
+        merged.extend(chunk)
+    return merged
+
+
+def _flatten_role_chunks(role_chunks):
+    return [(role, item) for role, chunk in role_chunks for item in chunk]
+
+
 def _merge_skip_samples(dst, src, limit):
     for reason, rows in src.items():
         bucket = dst.setdefault(reason, [])
@@ -346,6 +381,17 @@ def _log_skip_stats(logger, skip_reason_counts, skip_samples):
         samples = skip_samples.get(reason, [])
         if samples:
             logger.info("  跳过样例(%s): %s", reason, "; ".join(samples))
+
+
+def _set_current_cuda_device(device):
+    if not isinstance(device, str) or not device.startswith("cuda"):
+        return
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.set_device(torch.device(device))
+    except Exception:
+        return
 
 
 def _log_timing_stats(logger, total_elapsed, metric_elapsed_map, phase_elapsed_map=None, metric_detail_map=None):
@@ -403,6 +449,7 @@ def _metric_chunk_worker(
     max_skip_samples,
     indexed_chunk,
 ):
+    _set_current_cuda_device(device)
     state = _get_worker_metric_state(metric_cfg, cfg, output_dir, model_cache_dir, device)
     if "skip_reason" in state:
         return {"metric_skip_reason": state["skip_reason"]}
@@ -430,6 +477,7 @@ def _metric_chunk_worker(
                     )
             continue
         try:
+            _set_current_cuda_device(device)
             result = metric.compute(item, context, role=role)
         except MetricSkip as exc:
             reason = str(exc) or "metric_skipped"
@@ -442,6 +490,9 @@ def _metric_chunk_worker(
                 )
             continue
         except Exception as exc:
+            if _is_cuda_oom(exc):
+                _clear_cuda_cache_for_exception(exc)
+                raise
             fail_count += 1
             if len(errors) < 10:
                 errors.append(f"{item.utt_id}: {exc}")
@@ -496,6 +547,27 @@ def _asr_chunk_worker(asr_cfg, intermediate_dir, device, role, items_chunk):
             continue
         texts.append((item.utt_id, text))
     return {"role": role, "texts": texts, "errors": errors}
+
+
+def _asr_batch_worker(asr_cfg, intermediate_dir, device, role_items):
+    state = _get_worker_asr_state(asr_cfg, intermediate_dir, device)
+    if "skip_reason" in state:
+        return {"skip_reason": state["skip_reason"]}
+    asr = state["asr"]
+    texts_by_role = {}
+    errors = []
+    for role, item in role_items:
+        audio_path = item.gen_path if role == "gen" else item.src_path
+        if audio_path is None:
+            continue
+        try:
+            text = asr.transcribe(item, role=role, persist=False)
+        except Exception as exc:
+            if len(errors) < 10:
+                errors.append(f"{item.utt_id}: {exc}")
+            continue
+        texts_by_role.setdefault(role, []).append((item.utt_id, text))
+    return {"texts_by_role": texts_by_role, "errors": errors}
 
 
 def _run_metric_role_sequential(
@@ -599,10 +671,10 @@ def _run_metric_role_parallel(
         metric_skip_reason = None
         mp_ctx = mp.get_context("spawn")
         try:
-            with ProcessPoolExecutor(max_workers=attempt_workers, mp_context=mp_ctx) as executor:
+            jobs = _build_fixed_device_jobs(chunks, active_devices)
+            with ProcessPoolExecutor(max_workers=len(jobs), mp_context=mp_ctx) as executor:
                 futures = []
-                for task_idx, chunk in enumerate(chunks):
-                    device = active_devices[task_idx % len(active_devices)]
+                for job in jobs:
                     futures.append(
                         executor.submit(
                             _metric_chunk_worker,
@@ -610,12 +682,12 @@ def _run_metric_role_parallel(
                             context.cfg,
                             str(context.output_dir),
                             str(context.model_cache_dir),
-                            device,
+                            job["device"],
                             role,
                             eval_src,
                             missing_policy,
                             max_skip_samples,
-                            chunk,
+                            _flatten_chunks(job["chunks"]),
                         )
                     )
                 iterator = tqdm(as_completed(futures), total=len(futures), desc=f"{metric.name}:{role}")
@@ -738,18 +810,17 @@ def _precompute_asr_for_wer(metric_entries, items, context, eval_src, parallel_p
         error_logs = 0
         mp_ctx = mp.get_context("spawn")
         try:
-            with ProcessPoolExecutor(max_workers=attempt_workers, mp_context=mp_ctx) as executor:
+            jobs = _build_fixed_device_jobs(tasks, active_devices)
+            with ProcessPoolExecutor(max_workers=len(jobs), mp_context=mp_ctx) as executor:
                 futures = []
-                for task_idx, (role, chunk) in enumerate(tasks):
-                    device = active_devices[task_idx % len(active_devices)]
+                for job in jobs:
                     futures.append(
                         executor.submit(
-                            _asr_chunk_worker,
+                            _asr_batch_worker,
                             context.cfg.get("asr", {}),
                             str(context.intermediate_dir),
-                            device,
-                            role,
-                            chunk,
+                            job["device"],
+                            _flatten_role_chunks(job["chunks"]),
                         )
                     )
                 iterator = tqdm(as_completed(futures), total=len(futures), desc="asr:precompute")
@@ -758,6 +829,9 @@ def _precompute_asr_for_wer(metric_entries, items, context, eval_src, parallel_p
                     if payload.get("skip_reason"):
                         skip_reason = payload["skip_reason"]
                         continue
+                    for batch_role, texts in payload.get("texts_by_role", {}).items():
+                        for utt_id, text in texts:
+                            attempt_texts.setdefault(batch_role, {})[utt_id] = text
                     role = payload.get("role")
                     if role:
                         for utt_id, text in payload.get("texts", []):

@@ -22,7 +22,7 @@ class Score:
         print(f"Using device: {device}")
         self.device = device
         self.model = lightning_module.BaselineLightningModule.load_from_checkpoint(
-            ckpt_path).eval().to(device)
+            ckpt_path, weights_only=False).eval().to(device)
         self.in_sr = input_sample_rate
         self.resampler = torchaudio.transforms.Resample(
             orig_freq=input_sample_rate,

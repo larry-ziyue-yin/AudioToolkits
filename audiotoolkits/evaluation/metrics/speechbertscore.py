@@ -35,6 +35,25 @@ def _normalize_score_type(value):
     return value or "precision"
 
 
+def _set_worker_cuda_device(torch, device):
+    if not isinstance(device, str) or not device.startswith("cuda"):
+        return
+    if not torch.cuda.is_available():
+        return
+    torch.cuda.set_device(torch.device(device))
+
+
+def _pin_dsm_model_to_device(model, device):
+    if not isinstance(device, str):
+        return
+    if hasattr(model, "device"):
+        model.device = device
+    if hasattr(model, "model") and hasattr(model.model, "to"):
+        model.model.to(device)
+    if hasattr(model, "resampler") and hasattr(model.resampler, "to"):
+        model.resampler = model.resampler.to(device)
+
+
 class SpeechBERTScoreMetric(MetricBase):
     name = "speechbertscore"
     supports_src = True
@@ -145,6 +164,8 @@ class SpeechBERTScoreMetric(MetricBase):
         if use_gpu is None:
             use_gpu = device != "cpu"
         kwargs = {"sr": sr, "model_type": model_type, "use_gpu": bool(use_gpu)}
+        if kwargs["use_gpu"]:
+            _set_worker_cuda_device(torch, device)
         layer = self.cfg.get("layer")
         if layer is not None:
             try:
@@ -166,11 +187,15 @@ class SpeechBERTScoreMetric(MetricBase):
                     restore_model_loader()
             except TypeError:
                 self.model = module.SpeechBERTScore(sr=sr)
+        _pin_dsm_model_to_device(self.model, device)
 
     def _score(self, audio_path, ref):
         if self.model is None:
             raise RuntimeError("SpeechBERTScore model not initialized.")
         if self.backend == "discrete_speech_metrics":
+            torch = optional_import("torch")
+            _set_worker_cuda_device(torch, self.device)
+            _pin_dsm_model_to_device(self.model, self.device)
             target_sr = self.sample_rate or 16000
             ref_wav, _ = load_audio(ref, target_sr=target_sr)
             gen_wav, _ = load_audio(audio_path, target_sr=target_sr)

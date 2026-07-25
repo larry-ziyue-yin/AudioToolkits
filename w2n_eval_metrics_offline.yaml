@@ -36,7 +36,8 @@ output:
 
 parallel:
   enabled: true
-  devices: "auto"   # "auto" | "cuda" | "cpu" | ["cuda:0", "cuda:1"]
+  # Expand to all currently visible CUDA devices for each new eval run.
+  devices: "cuda"
   workers_per_device: 1
   chunk_size: 8
   precompute_asr: true

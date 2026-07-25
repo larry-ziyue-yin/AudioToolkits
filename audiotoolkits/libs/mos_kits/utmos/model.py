@@ -3,12 +3,29 @@ import torch.nn as nn
 import fairseq
 import os
 import hydra
+from contextlib import contextmanager
+
+
+@contextmanager
+def _torch_load_weights_only_false():
+    original_load = torch.load
+
+    def _load(*args, **kwargs):
+        kwargs.setdefault("weights_only", False)
+        return original_load(*args, **kwargs)
+
+    torch.load = _load
+    try:
+        yield
+    finally:
+        torch.load = original_load
+
 
 def load_ssl_model(cp_path):
     ssl_model_type = cp_path.split("/")[-1]
     wavlm =  "WavLM" in ssl_model_type
     if wavlm:
-        checkpoint = torch.load(cp_path)
+        checkpoint = torch.load(cp_path, weights_only=False)
         cfg = WavLMConfig(checkpoint['cfg'])
         ssl_model = WavLM(cfg)
         ssl_model.load_state_dict(checkpoint['model'])
@@ -24,9 +41,10 @@ def load_ssl_model(cp_path):
         else:
             print("*** ERROR *** SSL model type " + ssl_model_type + " not supported.")
             exit()
-        model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task(
-            [cp_path]
-        )
+        with _torch_load_weights_only_false():
+            model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task(
+                [cp_path]
+            )
         ssl_model = model[0]
         ssl_model.remove_pretraining_modules()
     return SSL_model(ssl_model, SSL_OUT_DIM, wavlm)

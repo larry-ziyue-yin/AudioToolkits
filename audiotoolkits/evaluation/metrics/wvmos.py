@@ -29,6 +29,15 @@ class WVMOSMetric(MetricBase):
             raise RuntimeError(f"WVMOS hf_model_dir is missing files {missing}: {hf_model_dir}")
 
         restore_items = []
+        original_torch_load = getattr(getattr(wvmos, "torch", None), "load", None)
+        if original_torch_load is not None:
+            def _torch_load(*args, **kwargs):
+                kwargs.setdefault("weights_only", False)
+                if not wvmos.torch.cuda.is_available():
+                    kwargs.setdefault("map_location", "cpu")
+                return original_torch_load(*args, **kwargs)
+
+            wvmos.torch.load = _torch_load
 
         def patch_from_pretrained(cls_name):
             cls = getattr(wvmos, cls_name, None)
@@ -51,6 +60,8 @@ class WVMOSMetric(MetricBase):
             context.logger.info("WVMOS HF base model local dir: %s", hf_model_dir)
 
         def _restore():
+            if original_torch_load is not None:
+                wvmos.torch.load = original_torch_load
             for cls, original in restore_items:
                 cls.from_pretrained = original
 
@@ -73,6 +84,11 @@ class WVMOSMetric(MetricBase):
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
+        if isinstance(device, str) and device.startswith("cuda"):
+            try:
+                torch.cuda.set_device(device)
+            except Exception as exc:
+                raise RuntimeError(f"Failed to set CUDA device for WVMOS: {device}") from exc
         cache_dir = Path(context.model_cache_dir) / "wvmos"
         ensure_dir(cache_dir)
         model_path = self.cfg.get("model_path") or self.cfg.get("model_name_or_path")
@@ -119,6 +135,12 @@ class WVMOSMetric(MetricBase):
     def _score(self, audio_path):
         if self.model is None:
             raise RuntimeError("WVMOS model is not initialized.")
+        if isinstance(self.device, str) and self.device.startswith("cuda"):
+            torch = optional_import("torch")
+            try:
+                torch.cuda.set_device(self.device)
+            except Exception as exc:
+                raise RuntimeError(f"Failed to set CUDA device for WVMOS: {self.device}") from exc
         for name in ["calculate_one", "predict", "score", "get_score", "__call__"]:
             if hasattr(self.model, name):
                 method = getattr(self.model, name)
