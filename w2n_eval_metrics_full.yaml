@@ -31,7 +31,7 @@ asr:
 output:
   output_dir: null
   save_intermediate: true
-  overwrite: true
+  overwrite: false
   cache_dir: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models
 
 parallel:
@@ -43,6 +43,10 @@ parallel:
   precompute_asr: true
 
 metrics:
+  - name: dnsmos
+    personalized: false
+    include_raw: false
+    cache_scores: true
   - name: secs
     pair_with: gt
     # pair_with: ref
@@ -58,6 +62,24 @@ metrics:
     # Same HF base model hard-coded by the wvmos package:
     # facebook/wav2vec2-base
     hf_model_dir: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models/model_cache/wvmos/facebook-wav2vec2-base
+  - name: wespeaker_sim
+    # Same as the original online source:
+    # gaunernst/wespeaker-voxblink2-samresnet34-ft
+    model_path: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models/wespeaker/voxblink2_samresnet34_ft
+  - name: wavlm_sim
+    # Same as the original model_name_or_path:
+    # microsoft/wavlm-base-plus-sv
+    model_name_or_path: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models/model_cache/wavlm
+    local_files_only: true
   - name: nisqa
     model_path: null
-
+  - name: speechbertscore
+    ref_type: audio
+    # Same as the original model_type:
+    # microsoft/wavlm-large
+    model_type: wavlm-large
+    model_local_dir: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models/model_cache/speechbertscore/wavlm-large
+    layer: 14
+    sr: 16000
+    use_gpu: true
+    score_type: precision

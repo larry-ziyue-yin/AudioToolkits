@@ -11,46 +11,25 @@ data:
   gt_text_path: /home/yinzy/AudioToolkits/aishell6_gt_text_simple.txt
 
 asr:
-  enabled: true
+  enabled: false
   backend: "whisper"
-  # Same as the original Whisper alias:
-  # turbo -> large-v3-turbo.pt
   model_name: "turbo"
-  model_path: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models/whisper/large-v3-turbo.pt
-  language: "zh"
-  convert_to_simplified: true
-  beam_size: 5
-  task: "transcribe"
-  fp16: true
-  force_script_defaults: true
-  write_flush_every: 50
-  output_path: null
-  output_path_src: null
   device: "auto"
 
 output:
   output_dir: null
   save_intermediate: true
-  overwrite: true
+  overwrite: false
   cache_dir: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models
 
 parallel:
-  enabled: true
-  # Expand to all currently visible CUDA devices for each new eval run.
-  devices: "cuda"
+  enabled: false
+  devices: ["cuda:1"]
   workers_per_device: 1
   chunk_size: 8
-  precompute_asr: true
+  precompute_asr: false
 
 metrics:
-  - name: secs
-    pair_with: gt
-    # pair_with: ref
-    # ref_token: "_ref_"
-  - name: cer
-    cluster: Mandarin
-  - name: wer
-  - name: utmos
   - name: wvmos
     # Same as the original online WVMOS source:
     # https://zenodo.org/record/6201162/files/wav2vec2.ckpt?download=1
@@ -58,6 +37,3 @@ metrics:
     # Same HF base model hard-coded by the wvmos package:
     # facebook/wav2vec2-base
     hf_model_dir: /SMIIPdata2/yinzy/whisper2normal_yzy/AudioToolkits/eval_models/model_cache/wvmos/facebook-wav2vec2-base
-  - name: nisqa
-    model_path: null
-
