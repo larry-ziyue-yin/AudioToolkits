@@ -135,8 +135,13 @@ class WavLMSimMetric(MetricBase):
             return None
         tdnn_dilation = getattr(self.model.config, "tdnn_dilation", None)
         if tdnn_dilation and len(tdnn_dilation) == len(tdnn_kernel):
-            return max(int(d) * (int(k) - 1) + 1 for k, d in zip(tdnn_kernel, tdnn_dilation))
-        return max(int(k) for k in tdnn_kernel)
+            # X-vector statistics pooling computes an unbiased standard
+            # deviation, so at least two frames must survive all TDNN layers.
+            return 2 + sum(
+                int(d) * (int(k) - 1)
+                for k, d in zip(tdnn_kernel, tdnn_dilation)
+            )
+        return 2 + sum(int(k) - 1 for k in tdnn_kernel)
 
     def _encode(self, audio_path, utt_id, role):
         torch = optional_import("torch")
